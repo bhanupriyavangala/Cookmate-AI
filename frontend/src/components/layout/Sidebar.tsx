@@ -8,19 +8,24 @@ import {
   MessageSquare,
   Settings,
   Database,
+  LogOut,
 } from 'lucide-react';
-import type { NavItemKey } from '../../types';
+import type { NavItemKey, EmployeeUser } from '../../types';
 
 interface SidebarProps {
   currentTab: NavItemKey;
   onTabChange: (tab: NavItemKey) => void;
   backendOnline: boolean;
+  currentUser?: EmployeeUser | null;
+  onLogout?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   onTabChange,
   backendOnline,
+  currentUser,
+  onLogout,
 }) => {
   return (
     <aside className="sidebar">
@@ -113,12 +118,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        <div className="user-profile-bar">
-          <div className="user-avatar">CP</div>
-          <div className="user-info">
-            <span className="user-name">Developer Mode</span>
-            <span className="user-role">Full-Stack SaaS</span>
+        <div className="user-profile-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div className="user-avatar">{currentUser ? currentUser.name.slice(0, 2).toUpperCase() : 'EP'}</div>
+            <div className="user-info">
+              <span className="user-name">{currentUser ? currentUser.name : 'Employee Session'}</span>
+              <span className="user-role">{currentUser ? currentUser.email : 'Authenticated'}</span>
+            </div>
           </div>
+          {onLogout && (
+            <button
+              type="button"
+              onClick={onLogout}
+              title="Sign out of Employee Portal"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                padding: '4px',
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              <LogOut size={16} />
+            </button>
+          )}
         </div>
       </div>
     </aside>

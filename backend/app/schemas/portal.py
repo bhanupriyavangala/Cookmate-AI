@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 
 class PortalMessageItem(BaseModel):
@@ -41,3 +41,9 @@ class PortalMessageCreate(BaseModel):
     content: str = Field(..., min_length=1, max_length=5000, description="Message content from client")
     conversation_id: Optional[int] = Field(None, description="Optional existing conversation ID within this project")
     sender_name: Optional[str] = Field(None, max_length=100, description="Optional client sender name")
+
+    @field_validator("content")
+    def validate_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Message content cannot be blank or whitespace only.")
+        return v.strip()

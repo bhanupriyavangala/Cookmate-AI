@@ -80,12 +80,16 @@ def determine_priority_and_status(
 
 def evaluate_conversation_needs_response(conversation: Conversation) -> Tuple[bool, Optional[Message]]:
     """
-    Evaluates whether a conversation deterministically requires an employee response.
-    Rules:
-      1. Closed conversations DO NOT require a response.
-      2. Conversations with no messages DO NOT require a response.
-      3. If the last message was sent by 'team' or 'system', the team already answered -> NO response needed.
-      4. If the last message was sent by 'client', a response IS required -> returns (True, last_message).
+    Evaluates whether a conversation requires follow-up attention.
+    Business Rules:
+      1. Closed conversations DO NOT require follow-up.
+      2. Conversations with no messages DO NOT require follow-up.
+      3. If the conversation has a pending action awaiting client response (e.g. employee
+         sent a requirement/request or client asked a question), we track the waiting period.
+      4. If the last message was sent by the employee (team/support), the system tracks
+         the waiting period that the client owes a response.
+      5. If the last message was sent by the client, employee attention is required.
+      6. In both cases, if the action is not marked resolved/closed, follow-up tracking applies.
     """
     if conversation.status == "closed":
         return (False, None)
@@ -97,17 +101,17 @@ def evaluate_conversation_needs_response(conversation: Conversation) -> Tuple[bo
     sorted_messages = sorted(conversation.messages, key=lambda m: m.sent_at)
     last_message = sorted_messages[-1]
 
-    if last_message.sender_type != "client":
-        return (False, None)
-
+    # Both awaiting client response and awaiting employee response are tracked in follow-up management
     return (True, last_message)
 
 
 def sync_followups(db: Session, now: Optional[datetime] = None) -> List[FollowUp]:
     """
     Synchronizes all conversations into deterministic FollowUp records.
-    - Accurately creates or updates follow-ups for conversations needing responses.
-    - Marks follow-ups as 'completed' if the conversation is closed or answered by team.
+    - Accurately tracks waiting time from the last relevant message timestamp.
+    - If employee sent a request, records waiting time until client responds.
+    - Does NOT incorrectly mark follow-up as completed just because employee sent another reminder.
+    - Only marks completed when conversation is explicitly closed or completed via action.
     """
     if now is None:
         now = datetime.now(timezone.utc)
@@ -116,50 +120,67 @@ def sync_followups(db: Session, now: Optional[datetime] = None) -> List[FollowUp
     followups = []
 
     for conv in conversations:
-        needs_response, last_client_msg = evaluate_conversation_needs_response(conv)
         existing = db.query(FollowUp).filter(FollowUp.conversation_id == conv.id).first()
 
-        if needs_response and last_client_msg:
-            days = calculate_waiting_time(last_client_msg.sent_at, now=now)
-            is_esc = existing.is_escalated if existing else False
-            snooze_until = existing.snoozed_until if existing else None
-            esc_reason = existing.escalation_reason if existing else None
+        if conv.status == "closed":
+            if existing and existing.status != "completed":
+                existing.status = "completed"
+                existing.days_waiting = 0.0
+            continue
 
-            # If it was previously marked completed, but client sent a new message, reopen it!
-            new_status, new_priority = determine_priority_and_status(
+        if not conv.messages or len(conv.messages) == 0:
+            if existing and existing.status != "completed":
+                existing.status = "completed"
+                existing.days_waiting = 0.0
+            continue
+
+        sorted_messages = sorted(conv.messages, key=lambda m: m.sent_at)
+        last_message = sorted_messages[-1]
+
+        # Calculate waiting time from the last message timestamp
+        days = calculate_waiting_time(last_message.sent_at, now=now)
+        is_esc = existing.is_escalated if existing else False
+        snooze_until = existing.snoozed_until if existing else None
+        esc_reason = existing.escalation_reason if existing else None
+
+        # Determine status and priority based on waiting duration
+        new_status, new_priority = determine_priority_and_status(
+            days_waiting=days,
+            is_escalated=is_esc,
+            snoozed_until=snooze_until,
+            now=now,
+        )
+
+        if existing:
+            # If manually snoozed or escalated, maintain state unless condition expired
+            if existing.status == "snoozed" and snooze_until and ensure_utc(snooze_until) > ensure_utc(now):
+                new_status = "snoozed"
+                new_priority = "low"
+            elif existing.is_escalated:
+                new_status = "escalated"
+                new_priority = "urgent"
+
+            existing.status = new_status
+            existing.priority = new_priority
+            existing.days_waiting = days
+            existing.last_client_message_at = last_message.sent_at
+            existing.last_message_content = last_message.content[:200]
+            followup_record = existing
+        else:
+            followup_record = FollowUp(
+                conversation_id=conv.id,
+                client_id=conv.client_id,
+                project_id=conv.project_id,
+                status=new_status,
+                priority=new_priority,
                 days_waiting=days,
+                last_client_message_at=last_message.sent_at,
+                last_message_content=last_message.content[:200],
                 is_escalated=is_esc,
-                snoozed_until=snooze_until,
-                now=now,
+                escalation_reason=esc_reason,
             )
-
-            if existing:
-                existing.status = new_status
-                existing.priority = new_priority
-                existing.days_waiting = days
-                existing.last_client_message_at = last_client_msg.sent_at
-                existing.last_message_content = last_client_msg.content[:200]
-                followup_record = existing
-            else:
-                followup_record = FollowUp(
-                    conversation_id=conv.id,
-                    client_id=conv.client_id,
-                    project_id=conv.project_id,
-                    status=new_status,
-                    priority=new_priority,
-                    days_waiting=days,
-                    last_client_message_at=last_client_msg.sent_at,
-                    last_message_content=last_client_msg.content[:200],
-                    is_escalated=is_esc,
-                    escalation_reason=esc_reason,
-                )
-                db.add(followup_record)
-            followups.append(followup_record)
-
-        elif existing and existing.status != "completed":
-            # Conversation is either closed or was answered by team -> mark follow-up as completed
-            existing.status = "completed"
-            existing.days_waiting = 0.0
+            db.add(followup_record)
+        followups.append(followup_record)
 
     db.commit()
     return followups

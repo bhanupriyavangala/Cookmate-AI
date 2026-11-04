@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,9 +10,28 @@ from app.api.health import router as health_router
 logger = logging.getLogger(__name__)
 
 
+async def background_followup_worker():
+    """
+    Automatic background worker evaluating and synchronizing follow-up items
+    every 60 seconds without relying solely on manual dashboard page refresh.
+    """
+    from app.database import SessionLocal
+    from app.services.followup_engine import sync_followups
+
+    while True:
+        try:
+            await asyncio.sleep(60)
+            with SessionLocal() as db:
+                sync_followups(db)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.debug(f"Periodic follow-up sync notice: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifespan handler: auto-initialize tables and seed baseline demo records."""
+    """Lifespan handler: auto-initialize tables, seed demo records, and start background follow-up worker."""
     from app.database import init_db, SessionLocal
     from app.seed import seed_demo_data
 
@@ -23,7 +43,16 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning(f"Notice during startup initialization: {exc}")
 
+    # Launch background follow-up evaluation worker task
+    worker_task = asyncio.create_task(background_followup_worker())
+
     yield
+
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(

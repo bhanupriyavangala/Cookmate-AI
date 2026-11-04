@@ -199,11 +199,26 @@ export interface ConversationAnalysis {
   pending_action: string;
   who_needs_to_respond: 'team' | 'client' | 'none';
   response_required: boolean;
+  client_action_completed?: boolean;
+  expected_response_date?: string | null;
+  client_was_asked_to_provide?: string | null;
   priority: 'low' | 'medium' | 'high' | 'urgent';
   possible_project_impact: string;
   recommended_next_action: string;
   ai_source: string;
   analysis_timestamp: string;
+}
+
+export interface EmployeeUser {
+  email: string;
+  name: string;
+  role: string;
+}
+
+export interface LoginResponse {
+  access_token: string;
+  token_type: string;
+  user: EmployeeUser;
 }
 
 export interface GeneratedFollowUp {

@@ -17,7 +17,6 @@ def get_engine():
     # Automatically adapt postgresql:// schema to SQLAlchemy 2.0 psycopg driver
     if db_url.startswith("postgresql://") and not db_url.startswith("postgresql+"):
         db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
-
     if "sqlite" in db_url:
         return create_engine(
             db_url,

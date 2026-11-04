@@ -30,8 +30,13 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_MODEL: str = "gemini-1.5-flash"
 
-    # Employee Authentication
+    # Employee Authentication & JWT Settings
     EMPLOYEE_API_KEY: str = "cp_employee_secret_key_2026"
+    JWT_SECRET_KEY: str = "cp_jwt_secret_signing_key_secure_2026_clientpulse"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+    DEFAULT_EMPLOYEE_EMAIL: str = "employee@clientpulse.ai"
+    DEFAULT_EMPLOYEE_PASSWORD: str = "ClientPulse2026!"
 
     # Portal Base URL (for link generation)
     PORTAL_BASE_URL: str = "http://localhost:5173"

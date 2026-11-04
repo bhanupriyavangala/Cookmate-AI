@@ -83,8 +83,10 @@ class GeminiService:
     def analyze_conversation(self, conv: Conversation) -> ConversationAnalysisResponse:
         """
         Feature 1: Conversation Analysis
-        Identifies pending action, who needs to respond, whether response is required,
-        priority, possible project impact, and recommended next action.
+        Understands what action is pending, who is expected to respond,
+        what the client was asked to provide, expected response date,
+        whether the client has completed the requested action,
+        priority, and recommended next action.
         """
         conv_context = self._build_conversation_context(conv)
 
@@ -93,15 +95,20 @@ class GeminiService:
   "pending_action": "<concise sentence describing the pending deliverable or question>",
   "who_needs_to_respond": "<'team' or 'client' or 'none'>",
   "response_required": <true or false>,
+  "client_action_completed": <true if client has provided the requested confirmation/deliverable, false otherwise>,
+  "expected_response_date": "<estimated date or timeframe e.g. 'Within 48 hours' or specific ISO date if discussed>",
+  "client_was_asked_to_provide": "<specific requirements, signoff, file, or decision requested from client>",
   "priority": "<'low' or 'medium' or 'high' or 'urgent'>",
   "possible_project_impact": "<explanation of how this affects budget, timeline, or relationship>",
   "recommended_next_action": "<actionable recommendation for the employee>"
 }}
 
 Guidelines:
-- If the conversation is closed or the team already sent the final confirmation, response_required should be false and who_needs_to_respond should be 'none' or 'client'.
-- If the client's last message is asking a question or requesting changes, response_required is true and who_needs_to_respond is 'team'.
-- Evaluate priority based on urgency and blocker severity.
+- CRITICAL BUSINESS LOGIC: When an employee sends a request/reminder to a client, the client owes a response. The follow-up is NOT completed merely because the employee sent a reminder.
+- Mark client_action_completed as true ONLY when the client has genuinely provided the confirmation, sign-off, or deliverable requested.
+- If the conversation is closed or deliverables are confirmed completed, response_required is false and who_needs_to_respond is 'none'.
+- If the client sent the last message asking a question, who_needs_to_respond is 'team'.
+- If the team sent a request and client has not replied, who_needs_to_respond is 'client'.
 
 Conversation to analyze:
 {conv_context}
@@ -124,6 +131,9 @@ Conversation to analyze:
                 pending_action=str(parsed.get("pending_action", "Address client inquiry")),
                 who_needs_to_respond=parsed.get("who_needs_to_respond", "team"),
                 response_required=bool(parsed.get("response_required", True)),
+                client_action_completed=bool(parsed.get("client_action_completed", False)),
+                expected_response_date=parsed.get("expected_response_date", "Within 48 hours"),
+                client_was_asked_to_provide=parsed.get("client_was_asked_to_provide", "Awaiting requested feedback or approval"),
                 priority=parsed.get("priority", "medium"),
                 possible_project_impact=str(parsed.get("possible_project_impact", "Routine project milestone communication")),
                 recommended_next_action=str(parsed.get("recommended_next_action", "Review message and provide requested update")),
@@ -148,6 +158,9 @@ Conversation to analyze:
                 pending_action="Thread concluded and archived.",
                 who_needs_to_respond="none",
                 response_required=False,
+                client_action_completed=True,
+                expected_response_date=None,
+                client_was_asked_to_provide=None,
                 priority="low",
                 possible_project_impact="None. Deliverables have been received and signed off.",
                 recommended_next_action="Archive conversation thread records for historical reference.",
@@ -160,6 +173,9 @@ Conversation to analyze:
                 pending_action="Initiate initial outreach to client.",
                 who_needs_to_respond="team",
                 response_required=True,
+                client_action_completed=False,
+                expected_response_date="Within 24 hours",
+                client_was_asked_to_provide="Kickoff requirements and project objectives",
                 priority="medium",
                 possible_project_impact="Client onboarding timeline pending kickoff outreach.",
                 recommended_next_action=f"Draft welcome greeting and introductory agenda for {client_name}.",
@@ -168,31 +184,69 @@ Conversation to analyze:
 
         last_msg = messages[-1]
 
+        # Scan recent messages to see if employee asked for deliverables
+        team_messages = [m for m in messages if m.sender_type == "team"]
+        last_team_msg = team_messages[-1] if team_messages else None
+
         if last_msg.sender_type != "client":
-            # Team already answered!
+            # Team sent last message -> client owes a response!
+            content_lower = last_msg.content.lower()
+            asked_for = "Deliverable approval or feedback"
+            if "confirm" in content_lower or "approve" in content_lower:
+                asked_for = "Confirmation and sign-off on proposed deliverables"
+            elif "invoice" in content_lower or "payment" in content_lower:
+                asked_for = "Invoice payment confirmation"
+            elif "provide" in content_lower or "send" in content_lower:
+                asked_for = "Requested documentation or credentials"
+
             return ConversationAnalysisResponse(
                 conversation_id=conv.id,
-                pending_action=f"Awaiting client feedback on our latest message sent by {last_msg.sender_name}.",
+                pending_action=f"Awaiting response from {client_name} regarding '{last_msg.content[:80]}...'",
                 who_needs_to_respond="client",
-                response_required=False,
-                priority="low",
-                possible_project_impact=f"Team is on track for {project_title}. Ball is in client's court.",
-                recommended_next_action="Monitor inbox for client response; no proactive response needed today.",
+                response_required=True,
+                client_action_completed=False,
+                expected_response_date="Within 48 hours",
+                client_was_asked_to_provide=asked_for,
+                priority="medium",
+                possible_project_impact=f"Project progress on {project_title} paused pending client response.",
+                recommended_next_action=f"Follow up with {client_name} if no response within standard follow-up window.",
                 ai_source="local_fallback",
             )
 
-        # Client sent the last message -> team must respond!
+        # Client sent the last message!
+        # Check if client message indicates completion of what was asked
         content_lower = last_msg.content.lower()
+        completion_words = ["approved", "confirmed", "signed off", "here is the", "attached", "completed", "done", "agreed"]
+        has_completed = any(w in content_lower for w in completion_words)
+
         is_urgent = any(w in content_lower for w in ["critical", "blocking", "error", "fail", "urgent", "asap"])
         is_high = any(w in content_lower for w in ["delay", "schedule", "deadline", "review", "confirm", "when"])
 
         priority = "urgent" if is_urgent else ("high" if is_high else "medium")
 
+        if has_completed:
+            return ConversationAnalysisResponse(
+                conversation_id=conv.id,
+                pending_action=f"Client confirmed deliverable: '{last_msg.content[:80]}...'",
+                who_needs_to_respond="team",
+                response_required=False,
+                client_action_completed=True,
+                expected_response_date=None,
+                client_was_asked_to_provide="Confirmed by client in latest response",
+                priority="low",
+                possible_project_impact=f"Milestone requirements for {project_title} satisfied.",
+                recommended_next_action="Acknowledge receipt and transition to next milestone phase.",
+                ai_source="local_fallback",
+            )
+
         return ConversationAnalysisResponse(
             conversation_id=conv.id,
-            pending_action=f"Respond to {client_name}'s query: '{last_msg.content[:80]}...'",
+            pending_action=f"Respond to {client_name}'s inquiry: '{last_msg.content[:80]}...'",
             who_needs_to_respond="team",
             response_required=True,
+            client_action_completed=False,
+            expected_response_date="Within 24 hours",
+            client_was_asked_to_provide="Inquiry pending team clarification",
             priority=priority,
             possible_project_impact=f"Delivery milestones for {project_title} depend on unblocking client's inquiries promptly.",
             recommended_next_action=f"Draft technical follow-up answering {client_name}'s specific points and offer review walkthrough.",

@@ -357,7 +357,7 @@ def seed_demo_data(db: Session, force: bool = False) -> dict:
     db.commit()
 
     # Seed contacts linked to clients & projects
-    _seed_contacts_for_clients(db, [client1, client2, client3], [proj1, proj2, proj3])
+    _seed_contacts_for_clients(db, [client1, client2, client3], [project1, project2, project3])
 
     # Synchronize followups through deterministic engine
     sync_followups(db, now=now)

@@ -23,11 +23,37 @@ import type {
   EmailDraftRequest,
   EmailDraftResponse,
   EmailFilterParams,
+  LoginResponse,
+  EmployeeUser,
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const PREFIX = '/api/v1';
-const EMPLOYEE_KEY = import.meta.env.VITE_EMPLOYEE_KEY || 'cp_employee_secret_key_2026';
+const TOKEN_STORAGE_KEY = 'clientpulse_employee_jwt';
+const USER_STORAGE_KEY = 'clientpulse_employee_user';
+
+export function getStoredToken(): string | null {
+  return localStorage.getItem(TOKEN_STORAGE_KEY);
+}
+
+export function setStoredSession(token: string, user: EmployeeUser): void {
+  localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+}
+
+export function clearStoredSession(): void {
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  localStorage.removeItem(USER_STORAGE_KEY);
+}
+
+export function getStoredUser(): EmployeeUser | null {
+  try {
+    const raw = localStorage.getItem(USER_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 
 function authHeaders(isPortal = false, extra: Record<string, string> = {}): Record<string, string> {
   const headers: Record<string, string> = {
@@ -36,7 +62,10 @@ function authHeaders(isPortal = false, extra: Record<string, string> = {}): Reco
   };
   // Only attach employee authorization credentials for internal employee endpoints
   if (!isPortal) {
-    headers['X-Employee-Key'] = EMPLOYEE_KEY;
+    const token = getStoredToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
   }
   return headers;
 }
@@ -63,6 +92,29 @@ async function handleResponse<T>(res: Response): Promise<T> {
 }
 
 export const api = {
+  // Employee Authentication (JWT Session)
+  async login(email: string, password: string): Promise<LoginResponse> {
+    const res = await fetch(`${API_BASE}${PREFIX}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await handleResponse<LoginResponse>(res);
+    setStoredSession(data.access_token, data.user);
+    return data;
+  },
+
+  async verifyAuth(): Promise<{ authenticated: boolean; role: string; status: string }> {
+    const res = await fetch(`${API_BASE}${PREFIX}/auth/verify`, {
+      headers: authHeaders(false),
+    });
+    return handleResponse(res);
+  },
+
+  logout(): void {
+    clearStoredSession();
+  },
+
   // Health & System (Public)
   async getHealth(): Promise<HealthCheckResponse> {
     const res = await fetch(`${API_BASE}/health`);

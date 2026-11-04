@@ -67,8 +67,9 @@ def mark_generated_as_sent_endpoint(
     db: Session = Depends(get_db),
 ):
     """
-    Records reviewed and edited AI follow-up message into the conversation log and resolves follow-up item.
-    (Simulates sending without actual external email/SMS dispatch).
+    Records reviewed and approved AI follow-up message into the conversation log.
+    Restarts the waiting period tracking for client response rather than falsely
+    marking the follow-up completed before client responds.
     """
     conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
     if not conv:
@@ -79,7 +80,7 @@ def mark_generated_as_sent_endpoint(
 
     now = datetime.now(timezone.utc)
 
-    # 1. Store message in conversation
+    # 1. Store message in conversation history
     msg = Message(
         conversation_id=conversation_id,
         sender_type="team",
@@ -92,11 +93,14 @@ def mark_generated_as_sent_endpoint(
     # Touch conversation updated timestamp
     conv.updated_at = now
 
-    # 2. Mark follow-up as completed if one exists
+    # 2. Update follow-up record: reminder has been delivered, restart waiting window
     followup = db.query(FollowUp).filter(FollowUp.conversation_id == conversation_id).first()
     if followup:
-        followup.status = "completed"
         followup.days_waiting = 0.0
+        followup.status = "pending"
+        followup.priority = "low"
+        followup.last_client_message_at = now
+        followup.last_message_content = f"[Reminder sent]: {msg.content[:160]}"
 
     db.commit()
     db.refresh(msg)
@@ -105,7 +109,7 @@ def mark_generated_as_sent_endpoint(
         "status": "sent",
         "message_id": msg.id,
         "conversation_id": conversation_id,
-        "followup_status": followup.status if followup else "none",
-        "message": "Follow-up message recorded in conversation thread and follow-up marked as completed.",
+        "followup_status": followup.status if followup else "pending",
+        "message": "Follow-up reminder recorded into conversation history. Client waiting period reset.",
         "sent_at": msg.sent_at,
     }

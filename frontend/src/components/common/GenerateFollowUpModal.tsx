@@ -194,17 +194,29 @@ export const GenerateFollowUpModal: React.FC<GenerateFollowUpModalProps> = ({
 
                 <div style={{ background: 'rgba(0,0,0,0.3)', padding: '10px 12px', borderRadius: 'var(--radius-md)' }}>
                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>
-                    Responsible Party & Need
+                    Expected Responder & Status
                   </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
                     <span className="nav-tag" style={{ color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.3)', textTransform: 'capitalize' }}>
-                      {analysis.who_needs_to_respond}
+                      {analysis.who_needs_to_respond === 'client' ? 'Client Owes Response' : analysis.who_needs_to_respond === 'team' ? 'Employee Response' : 'None Pending'}
                     </span>
-                    <span style={{ fontSize: '0.76rem', color: analysis.response_required ? '#fde047' : '#34d399' }}>
-                      {analysis.response_required ? '• Response Required' : '• No Response Needed'}
+                    <span style={{ fontSize: '0.76rem', color: analysis.client_action_completed ? '#34d399' : analysis.response_required ? '#fde047' : '#94a3b8' }}>
+                      {analysis.client_action_completed ? '• Client Action Fulfilled' : analysis.response_required ? '• Pending Response' : '• Resolved'}
                     </span>
                   </div>
                 </div>
+
+                {analysis.client_was_asked_to_provide && (
+                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '10px 12px', borderRadius: 'var(--radius-md)', gridColumn: 'span 2' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>
+                      Client Was Asked To Provide
+                    </span>
+                    <p style={{ color: '#93c5fd', margin: 0, lineHeight: 1.45, fontWeight: 500 }}>
+                      {analysis.client_was_asked_to_provide}
+                      {analysis.expected_response_date ? ` (Expected: ${analysis.expected_response_date})` : ''}
+                    </p>
+                  </div>
+                )}
 
                 <div style={{ background: 'rgba(0,0,0,0.3)', padding: '10px 12px', borderRadius: 'var(--radius-md)', gridColumn: 'span 2' }}>
                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>

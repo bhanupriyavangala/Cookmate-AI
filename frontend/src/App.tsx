@@ -7,8 +7,9 @@ import { ProjectsView } from './views/ProjectsView';
 import { MessagesView } from './views/MessagesView';
 import { SettingsView } from './views/SettingsView';
 import { ClientPortalView } from './views/ClientPortalView';
-import type { NavItemKey, HealthCheckResponse } from './types';
-import { api } from './services/api';
+import { EmployeeLoginModal } from './components/auth/EmployeeLoginModal';
+import type { NavItemKey, HealthCheckResponse, EmployeeUser } from './types';
+import { api, getStoredToken, getStoredUser } from './services/api';
 
 function getPortalTokenFromUrl(): string | null {
   // 1. Check pathname: /portal/:token
@@ -35,6 +36,10 @@ export function App() {
   const [healthData, setHealthData] = useState<HealthCheckResponse | null>(null);
   const [isChecking, setIsChecking] = useState<boolean>(false);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
+
+  // Authentication State
+  const [currentUser, setCurrentUser] = useState<EmployeeUser | null>(getStoredUser());
+  const [showLoginModal, setShowLoginModal] = useState<boolean>(!getStoredToken());
 
   // Check if current visitor opened a public client portal link
   const portalToken = getPortalTokenFromUrl();
@@ -66,6 +71,18 @@ export function App() {
     }
   }, [portalToken, checkBackendHealth]);
 
+  const handleLoginSuccess = (user: EmployeeUser) => {
+    setCurrentUser(user);
+    setShowLoginModal(false);
+    checkBackendHealth();
+  };
+
+  const handleLogout = () => {
+    api.logout();
+    setCurrentUser(null);
+    setShowLoginModal(true);
+  };
+
   // If visitor is opening a client portal token link, render the dedicated mobile-friendly client portal
   if (portalToken) {
     return <ClientPortalView token={portalToken} />;
@@ -73,29 +90,37 @@ export function App() {
 
   // Otherwise, render full employee application layout
   return (
-    <MainLayout
-      currentTab={currentTab}
-      onTabChange={setCurrentTab}
-      backendOnline={backendOnline}
-      isChecking={isChecking}
-      onRefreshHealth={checkBackendHealth}
-    >
-      {currentTab === 'dashboard' && (
-        <DashboardView
-          healthData={healthData}
-          backendOnline={backendOnline}
-          isChecking={isChecking}
-          latencyMs={latencyMs}
-          onRefreshHealth={checkBackendHealth}
-          onNavigate={setCurrentTab}
-        />
-      )}
-      {currentTab === 'clients' && <ClientsView />}
-      {currentTab === 'contacts' && <ContactsView />}
-      {currentTab === 'projects' && <ProjectsView />}
-      {currentTab === 'messages' && <MessagesView />}
-      {currentTab === 'settings' && <SettingsView />}
-    </MainLayout>
+    <>
+      <EmployeeLoginModal
+        isOpen={showLoginModal}
+        onLoginSuccess={handleLoginSuccess}
+      />
+      <MainLayout
+        currentTab={currentTab}
+        onTabChange={setCurrentTab}
+        backendOnline={backendOnline}
+        isChecking={isChecking}
+        onRefreshHealth={checkBackendHealth}
+        currentUser={currentUser}
+        onLogout={handleLogout}
+      >
+        {currentTab === 'dashboard' && (
+          <DashboardView
+            healthData={healthData}
+            backendOnline={backendOnline}
+            isChecking={isChecking}
+            latencyMs={latencyMs}
+            onRefreshHealth={checkBackendHealth}
+            onNavigate={setCurrentTab}
+          />
+        )}
+        {currentTab === 'clients' && <ClientsView />}
+        {currentTab === 'contacts' && <ContactsView />}
+        {currentTab === 'projects' && <ProjectsView />}
+        {currentTab === 'messages' && <MessagesView />}
+        {currentTab === 'settings' && <SettingsView />}
+      </MainLayout>
+    </>
   );
 }
 

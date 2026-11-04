@@ -1,7 +1,7 @@
 import React from 'react';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
-import type { NavItemKey } from '../../types';
+import type { NavItemKey, EmployeeUser } from '../../types';
 
 interface MainLayoutProps {
   currentTab: NavItemKey;
@@ -9,6 +9,8 @@ interface MainLayoutProps {
   backendOnline: boolean;
   isChecking: boolean;
   onRefreshHealth: () => void;
+  currentUser?: EmployeeUser | null;
+  onLogout?: () => void;
   children: React.ReactNode;
 }
 
@@ -18,6 +20,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   backendOnline,
   isChecking,
   onRefreshHealth,
+  currentUser,
+  onLogout,
   children,
 }) => {
   return (
@@ -26,6 +30,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         currentTab={currentTab}
         onTabChange={onTabChange}
         backendOnline={backendOnline}
+        currentUser={currentUser}
+        onLogout={onLogout}
       />
       <div className="main-wrapper">
         <Header
